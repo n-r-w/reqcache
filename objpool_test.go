@@ -82,3 +82,35 @@ func TestObjectPoolOverflowLogging(t *testing.T) {
 	require.Equal(t, "testPool", logger.name, "Logger should receive the correct pool name")
 	require.Equal(t, 1, logger.size, "Logger should receive the correct pool size")
 }
+
+func TestObjectSyncPoolReuse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	syncPool := newObjectSyncPool[int]()
+
+	// Request an object from the sync pool
+	const objCount = 10
+
+	pool1 := syncPool.Get("testSyncPool", objCount, nil)
+	for i := 0; i < objCount; i++ {
+		obj := pool1.get(ctx)
+		*obj = i + 1
+	}
+
+	// Put the pool back
+	syncPool.Put(pool1)
+
+	// Request another object pool, it should reuse the previous pool and not reallocate memory
+	pool2 := syncPool.Get("testSyncPool", objCount/2, nil)
+	require.Same(t, pool1, pool2, "Reused object pool should be the same as the previous pool")
+	require.Equal(t, 0, pool2.index, "Reused object pool should have an initial index of 0")
+	require.Len(t, pool2.data, objCount/2, "Reused object pool should have the correct size")
+
+	// Check that the objects are cleared
+	for i := 0; i < objCount/2; i++ {
+		obj := pool2.get(ctx)
+		require.Equal(t, 0, *obj, "Object should be cleared")
+	}
+}

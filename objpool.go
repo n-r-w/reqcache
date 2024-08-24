@@ -76,17 +76,18 @@ func newObjectSyncPool[T any]() *objectSyncPool[T] {
 // Get returns an object from the pool.
 func (w *objectSyncPool[T]) Get(name string, size int, logger ILogger) *objectPool[T] {
 	o, _ := w.pool.Get().(*objectPool[T])
+	o.index = 0
 	o.name = name
 	o.logger = logger
 	o.mu = sync.Mutex{}
 	o.logOnce = sync.Once{}
 
-	if len(o.data) < size {
+	if cap(o.data) < size {
 		o.data = make([]T, size)
 	} else {
 		o.data = o.data[:size]
+		var zero T
 		for i := 0; i < size; i++ {
-			var zero T
 			o.data[i] = zero
 		}
 	}
@@ -97,8 +98,6 @@ func (w *objectSyncPool[T]) Get(name string, size int, logger ILogger) *objectPo
 // Put puts an object in the pool.
 func (w *objectSyncPool[T]) Put(v *objectPool[T]) {
 	v.logger = nil
-	v.data = v.data[:0]
-	v.index = 0
 
 	w.pool.Put(v)
 }

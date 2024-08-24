@@ -23,8 +23,8 @@ go get -u github.com/n-r-w/reqcache
 ## Benchmarks with and without batch allocation
 
 ```sh
-BenchmarkWithoutBatchAllocation-32          765    1561950 ns/op 10240121 B/op    10002 allocs/op
-BenchmarkWithBatchAllocation-32            2161     617235 ns/op 10240252 B/op        5 allocs/op
+BenchmarkWithoutBatchAllocation-32          747    1513720 ns/op 10240114 B/op    10002 allocs/op
+BenchmarkWithBatchAllocation-32            4189     251629 ns/op     2598 B/op        3 allocs/op
 ```
 
 ## Usage
