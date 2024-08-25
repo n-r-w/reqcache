@@ -1,3 +1,4 @@
+//nolint:exhaustruct // tests
 package reqcache
 
 import (
@@ -5,11 +6,49 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 )
+
+// mockLogger is a mock implementation of the iLogger interface for testing purposes.
+type mockLogger struct {
+	name string
+
+	objHit  int
+	objMiss int
+
+	cacheHit  int
+	cacheMiss int
+
+	mu sync.Mutex
+}
+
+func (m *mockLogger) LogObjectPoolHitRatio(_ context.Context, name string, hit bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.name = name
+	if hit {
+		m.objHit++
+	} else {
+		m.objMiss++
+	}
+}
+
+func (m *mockLogger) LogCacheHitRatio(_ context.Context, name string, hit bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.name = name
+	if hit {
+		m.cacheHit++
+	} else {
+		m.cacheMiss++
+	}
+}
 
 type reqCacheTestObject struct {
 	value int
@@ -210,6 +249,30 @@ func TestReqCache_GetOrNew(t *testing.T) {
 		return errors.New("prepare error")
 	})
 	require.Error(t, err)
+}
+
+func TestReqCache_HitRatio(t *testing.T) {
+	t.Parallel()
+
+	ctx := NewSession(context.Background())
+
+	logger := &mockLogger{}
+	cache := New[string, reqCacheTestObject](0, 1, WithLogger("test", logger))
+
+	const key = "key1"
+	value := &reqCacheTestObject{value: 100}
+	cache.Put(ctx, key, value)
+
+	// Ensure that we get object from the cache
+	retrievedValue, ok := cache.Get(ctx, key)
+	require.True(t, ok)
+	require.Equal(t, value, retrievedValue)
+	require.Equal(t, &mockLogger{name: "test", objHit: 0, objMiss: 0, cacheHit: 1, cacheMiss: 0}, logger)
+
+	// Not found in the cache
+	_, ok = cache.Get(ctx, "key2")
+	require.False(t, ok)
+	require.Equal(t, &mockLogger{name: "test", objHit: 0, objMiss: 0, cacheHit: 1, cacheMiss: 1}, logger)
 }
 
 func TestAsyncReqCache(t *testing.T) {

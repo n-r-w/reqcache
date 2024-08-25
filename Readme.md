@@ -43,7 +43,7 @@ const (
 
 cache := reqcache.New[KeyType, ObjectType](
     preAllocatedObjects, maxCacheSize,    
-    reqcache.WithLogger("cache name", logger), // used for logging/metrics pre-allocated memory overflow    
+    reqcache.WithLogger("cache name", logger), // used for logging/metrics pre-allocated memory overflow and cache hits   
 )
 ```
 
@@ -99,7 +99,7 @@ obj, ok := cache.Get(ctx, key)
 ## Example
 
 ```go
-//nolint:gochecknoglobals // ок example
+//nolint:gochecknoglobals,revive // example
 package main
 
 import (
@@ -210,14 +210,16 @@ func workFunc3(ctx context.Context, cache *MyCache) {
     }
 }
 
-// myLogger is a custom logger for ReqCache. It logs object pool overflows.
+// myLogger is a custom logger for ReqCache. It logs object pool overflows and cache hits.
 // Not required.
 type myLogger struct{}
 
-// LogObjectPoolOverflow logs object pool overflows. Implements interface with single method LogObjectPoolOverflow.
-func (l *myLogger) LogObjectPoolOverflow(_ context.Context, name string, size int) {
-    log.Printf("Object pool overflow: %s, size: %d", name, size)
-    // send metrics...
+func (m *myLogger) LogObjectPoolHitRatio(_ context.Context, name string, hit bool) {
+    log.Printf("Object pool hit: %s, hit: %v", name, hit)
+}
+
+func (m *myLogger) LogCacheHitRatio(_ context.Context, name string, hit bool) {
+    log.Printf("Cache hit: %s, hit: %v", name, hit)
 }
 
 // myKey is a custom key type for ReqCache.

@@ -5,11 +5,6 @@ import (
 	"sync"
 )
 
-// ILogger is an interface for logging new object pool overflows.
-type ILogger interface {
-	LogObjectPoolOverflow(ctx context.Context, name string, size int)
-}
-
 // objectPool manages an array of objects of type T, preallocating memory for them.
 type objectPool[T any] struct {
 	mu    sync.Mutex
@@ -33,19 +28,21 @@ func newObjectPool[T any](name string, size int, logger ILogger) *objectPool[T] 
 
 // get returns a pointer to a new object of type T from the array.
 func (p *objectPool[T]) get(ctx context.Context) *T {
+	var hit bool
+	if p.logger != nil {
+		defer func() { p.logger.LogObjectPoolHitRatio(ctx, p.name, hit) }()
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.index >= len(p.data) {
-		if p.logger != nil {
-			p.logger.LogObjectPoolOverflow(ctx, p.name, len(p.data))
-		}
-
 		return new(T)
 	}
 
 	res := &p.data[p.index]
 	p.index++
+	hit = true
 
 	return res
 }

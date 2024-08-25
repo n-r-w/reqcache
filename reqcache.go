@@ -8,6 +8,12 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
+// ILogger is an interface for logging new object pool overflows and cache hit/miss ratio.
+type ILogger interface {
+	LogObjectPoolHitRatio(ctx context.Context, name string, hit bool)
+	LogCacheHitRatio(ctx context.Context, name string, hit bool)
+}
+
 // NewSession adds a unique key for caching data in the cache.
 // Must be called once at the beginning of the request processing.
 func NewSession(ctx context.Context) context.Context {
@@ -108,7 +114,11 @@ func (m *ReqCache[K, T]) Put(ctx context.Context, dataKey K, data *T) {
 }
 
 // Exists checks if the data exists in the cache.
-func (m *ReqCache[K, T]) Exists(ctx context.Context, dataKey K) bool {
+func (m *ReqCache[K, T]) Exists(ctx context.Context, dataKey K) (found bool) { //nolint:nonamedreturns // false positive
+	if m.op.logger != nil {
+		defer func() { m.op.logger.LogCacheHitRatio(ctx, m.op.name, found) }()
+	}
+
 	m.checkCache()
 
 	requestKey := fromContext(ctx)
@@ -142,7 +152,11 @@ func (m *ReqCache[K, T]) Delete(ctx context.Context, dataKey K) bool {
 }
 
 // Get returns data from the cache.
-func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (*T, bool) {
+func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool) { //nolint:nonamedreturns,lll // false positive
+	if m.op.logger != nil {
+		defer func() { m.op.logger.LogCacheHitRatio(ctx, m.op.name, found) }()
+	}
+
 	m.checkCache()
 
 	requestKey := fromContext(ctx)

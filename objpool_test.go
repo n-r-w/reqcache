@@ -1,3 +1,4 @@
+//nolint:exhaustruct // tests
 package reqcache
 
 import (
@@ -6,19 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
-
-// mockLogger is a mock implementation of the iLogger interface for testing purposes.
-type mockLogger struct {
-	logCalled bool
-	name      string
-	size      int
-}
-
-func (m *mockLogger) LogObjectPoolOverflow(_ context.Context, name string, size int) {
-	m.logCalled = true
-	m.name = name
-	m.size = size
-}
 
 func TestNewObjectPool(t *testing.T) {
 	t.Parallel()
@@ -65,22 +53,16 @@ func TestObjectPoolOverflowLogging(t *testing.T) {
 
 	ctx := context.Background()
 
-	logger := &mockLogger{
-		logCalled: false,
-		name:      "",
-		size:      0,
-	}
+	logger := &mockLogger{}
 	pool := newObjectPool[int]("testPool", 1, logger)
 
 	// Fill the pool
 	pool.get(ctx)
-	require.False(t, logger.logCalled, "Logger should not be called before overflow")
+	require.Equal(t, &mockLogger{name: "testPool", objHit: 1, objMiss: 0}, logger)
 
-	// This should exceed the pool and trigger the logger
+	// This should exceed the pool
 	pool.get(ctx)
-	require.True(t, logger.logCalled, "Logger should be called after overflow")
-	require.Equal(t, "testPool", logger.name, "Logger should receive the correct pool name")
-	require.Equal(t, 1, logger.size, "Logger should receive the correct pool size")
+	require.Equal(t, &mockLogger{name: "testPool", objHit: 1, objMiss: 1}, logger)
 }
 
 func TestObjectSyncPoolReuse(t *testing.T) {
