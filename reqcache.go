@@ -41,7 +41,7 @@ type ReqCache[K comparable, T any] struct {
 	muObjects sync.Mutex
 }
 
-// WithLogger sets a logger for displaying new object pool overflows.
+// WithLogger sets a logger for displaying/metrics new object pool overflows.
 // By default, the logger is nil.
 func WithLogger(name string, logger ILogger) Option {
 	return func(c *options) {
@@ -160,14 +160,14 @@ func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (*T, bool) {
 
 // GetOrFetch returns data from the cache or fetches it from the fetcher function.
 func (m *ReqCache[K, T]) GetOrFetch(ctx context.Context, dataKey K,
-	fetcher func(context.Context) (*T, error),
+	fetcher func(context.Context, *ReqCache[K, T]) (*T, error),
 ) (*T, error) {
 	v, ok := m.Get(ctx, dataKey)
 	if ok {
 		return v, nil
 	}
 
-	obj, err := fetcher(ctx)
+	obj, err := fetcher(ctx, m)
 	if err != nil {
 		return nil, err
 	}

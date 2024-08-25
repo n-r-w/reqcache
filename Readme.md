@@ -43,7 +43,7 @@ const (
 
 cache := reqcache.New[KeyType, ObjectType](
     preAllocatedObjects, maxCacheSize,    
-    reqcache.WithLogger("cache name", logger), // used for logging pre-allocated memory overflow    
+    reqcache.WithLogger("cache name", logger), // used for logging/metrics pre-allocated memory overflow    
 )
 ```
 
@@ -67,7 +67,7 @@ defer cache.EndSession(ctx)
 
 NewObject takes a pointer to object from the pre-allocated memory.
 If no pre-allocated memory is available (because too many objects have already been taken from the cache), a new object is created.
-In case of an object pool overflow, the logger will be called once.
+In case of an object pool overflow, the logger will be called.
 
 ```go
 newObj := cache.NewObject(ctx)
@@ -99,6 +99,7 @@ obj, ok := cache.Get(ctx, key)
 ## Example
 
 ```go
+//nolint:gochecknoglobals // ок example
 package main
 
 import (
@@ -110,15 +111,18 @@ import (
     "github.com/n-r-w/reqcache"
 )
 
+type MyCache = reqcache.ReqCache[myKey, myObject]
+
 func main() {
     const (
         objSize   = 5  // number of pre-allocated objects
         cacheSize = 10 // maximum number of objects in the cache
+
     )
 
     cache := reqcache.New[myKey, myObject](
         objSize, cacheSize,
-        reqcache.WithLogger("example", &myLogger{}),
+        reqcache.WithLogger("example", &myLogger{}), // logging and metrics for object pool overflows
     )
 
     http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -144,13 +148,14 @@ func main() {
     }
 }
 
-//nolint:gochecknoglobals // ок example
 var (
     dataKey1 = myKey{Key1: "some-key11", Key2: "some-key12"}
     dataKey2 = myKey{Key1: "some-key21", Key2: "some-key22"}
+    dataKey3 = myKey{Key1: "some-key31", Key2: "some-key32"}
+    dataKey4 = myKey{Key1: "some-key41", Key2: "some-key42"}
 )
 
-func workFunc1(ctx context.Context, cache *reqcache.ReqCache[myKey, myObject]) {
+func workFunc1(ctx context.Context, cache *MyCache) {
     // Create a new object from the pre-allocated memory
     newObj1 := cache.NewObject(ctx)
     // Set the value
@@ -166,16 +171,43 @@ func workFunc1(ctx context.Context, cache *reqcache.ReqCache[myKey, myObject]) {
     cache.Put(ctx, dataKey2, newObj2)
 }
 
-func workFunc2(ctx context.Context, cache *reqcache.ReqCache[myKey, myObject]) {
-    if _, ok := cache.Get(ctx, dataKey1); ok {
-        return
+func workFunc2(ctx context.Context, cache *MyCache) {
+    // obj1 is cached
+    if obj1, ok := cache.Get(ctx, dataKey1); ok {
+        log.Println("obj1 is cached:", obj1.Value)
     }
 
-    if _, ok := cache.Get(ctx, dataKey2); ok {
-        return
+    // obj3 is not cached. will be fetched and cached
+    if obj3, err := cache.GetOrFetch(ctx, dataKey3,
+        func(_ context.Context, _ *MyCache) (*myObject, error) {
+            // fetching data
+            return &myObject{Value: "Hello, World 3!"}, nil
+        }); err != nil {
+        log.Println(err.Error())
+    } else {
+        log.Println("obj3 is fetched:", obj3.Value)
     }
 
-    log.Println("Cache miss")
+    workFunc3(ctx, cache)
+}
+
+func workFunc3(ctx context.Context, cache *MyCache) {
+    // obj3 is cached
+    if obj3, ok := cache.Get(ctx, dataKey3); ok {
+        log.Println("obj3 is cached:", obj3.Value)
+    }
+
+    // obj4 is not cached. will be created by NewObject, prepared and cached
+    if obj4, err := cache.GetOrNew(ctx, dataKey4,
+        func(_ context.Context, obj *myObject) error {
+            // preparing data
+            obj.Value = "Hello, World 4!"
+            return nil
+        }); err != nil {
+        log.Println(err.Error())
+    } else {
+        log.Println("obj4 is created by NewObject and prepared:", obj4.Value)
+    }
 }
 
 // myLogger is a custom logger for ReqCache. It logs object pool overflows.
@@ -185,6 +217,7 @@ type myLogger struct{}
 // LogObjectPoolOverflow logs object pool overflows. Implements interface with single method LogObjectPoolOverflow.
 func (l *myLogger) LogObjectPoolOverflow(_ context.Context, name string, size int) {
     log.Printf("Object pool overflow: %s, size: %d", name, size)
+    // send metrics...
 }
 
 // myKey is a custom key type for ReqCache.

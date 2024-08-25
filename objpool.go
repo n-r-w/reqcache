@@ -16,20 +16,18 @@ type objectPool[T any] struct {
 	data  []T
 	index int
 
-	logOnce sync.Once
-	name    string
-	logger  ILogger
+	name   string
+	logger ILogger
 }
 
 // newObjectPool creates a new objectPool.
 func newObjectPool[T any](name string, size int, logger ILogger) *objectPool[T] {
 	return &objectPool[T]{
-		mu:      sync.Mutex{},
-		data:    make([]T, size),
-		index:   0,
-		logOnce: sync.Once{},
-		name:    name,
-		logger:  logger,
+		mu:     sync.Mutex{},
+		data:   make([]T, size),
+		index:  0,
+		name:   name,
+		logger: logger,
 	}
 }
 
@@ -40,9 +38,7 @@ func (p *objectPool[T]) get(ctx context.Context) *T {
 
 	if p.index >= len(p.data) {
 		if p.logger != nil {
-			p.logOnce.Do(func() {
-				p.logger.LogObjectPoolOverflow(ctx, p.name, len(p.data))
-			})
+			p.logger.LogObjectPoolOverflow(ctx, p.name, len(p.data))
 		}
 
 		return new(T)
@@ -65,8 +61,7 @@ func newObjectSyncPool[T any]() *objectSyncPool[T] {
 		pool: &sync.Pool{
 			New: func() any {
 				return &objectPool[T]{ //nolint:exhaustruct // default values
-					mu:      sync.Mutex{},
-					logOnce: sync.Once{},
+					mu: sync.Mutex{},
 				}
 			},
 		},
@@ -80,7 +75,6 @@ func (w *objectSyncPool[T]) Get(name string, size int, logger ILogger) *objectPo
 	o.name = name
 	o.logger = logger
 	o.mu = sync.Mutex{}
-	o.logOnce = sync.Once{}
 
 	if cap(o.data) < size {
 		o.data = make([]T, size)
