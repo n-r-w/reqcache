@@ -172,16 +172,17 @@ func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool
 	return data.Get(dataKey)
 }
 
-// GetOrFetch returns data from the cache or fetches it from the fetcher function.
+// GetOrFetch returns data from the cache or fetches it from the fetcher function,
+// for example, from the database.
 func (m *ReqCache[K, T]) GetOrFetch(ctx context.Context, dataKey K,
-	fetcher func(context.Context, *ReqCache[K, T]) (*T, error),
+	fetcher func(context.Context) (*T, error),
 ) (*T, error) {
 	v, ok := m.Get(ctx, dataKey)
 	if ok {
 		return v, nil
 	}
 
-	obj, err := fetcher(ctx, m)
+	obj, err := fetcher(ctx)
 	if err != nil {
 		return nil, err
 	}

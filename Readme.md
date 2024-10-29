@@ -94,7 +94,7 @@ obj, ok := cache.Get(ctx, key)
 
 - `Exists` checks if an object exists in the cache.
 - `Delete` removes an object from the cache.
-- `GetOrFetch` returns data from the cache or fetches it from the fetcher function.
+- `GetOrFetch` returns data from the cache or fetches it from the fetcher function (for example, from a database).
 - `GetOrNew` returns data from the cache or creates it and prepares with the prepare function.
 
 ## Example
@@ -180,7 +180,7 @@ func workFunc2(ctx context.Context, cache *MyCache) {
 
     // obj3 is not cached. will be fetched and cached
     if obj3, err := cache.GetOrFetch(ctx, dataKey3,
-        func(_ context.Context, _ *MyCache) (*myObject, error) {
+        func(_ context.Context) (*myObject, error) {
             // fetching data
             return &myObject{Value: "Hello, World 3!"}, nil
         }); err != nil {

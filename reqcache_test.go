@@ -181,7 +181,7 @@ func TestReqCache_GetOrFetch(t *testing.T) {
 	value := &reqCacheTestObject{value: 100}
 
 	// Fetcher function that returns the value
-	fetcher := func(context.Context, *ReqCache[string, reqCacheTestObject]) (*reqCacheTestObject, error) {
+	fetcher := func(context.Context) (*reqCacheTestObject, error) {
 		return value, nil
 	}
 
@@ -196,7 +196,7 @@ func TestReqCache_GetOrFetch(t *testing.T) {
 
 	// Validate that fetcher is not called again and the cached value is returned
 	newValue, err := cache.GetOrFetch(ctx, key,
-		func(context.Context, *ReqCache[string, reqCacheTestObject]) (*reqCacheTestObject, error) {
+		func(context.Context) (*reqCacheTestObject, error) {
 			return &reqCacheTestObject{value: 200}, nil
 		})
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestReqCache_GetOrFetch(t *testing.T) {
 
 	// Ensure that error is returned if fetcher returns an error
 	_, err = cache.GetOrFetch(ctx, "key2",
-		func(context.Context, *ReqCache[string, reqCacheTestObject]) (*reqCacheTestObject, error) {
+		func(context.Context) (*reqCacheTestObject, error) {
 			return nil, errors.New("fetcher error")
 		})
 	require.Error(t, err)
