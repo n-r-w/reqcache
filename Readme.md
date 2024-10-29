@@ -7,17 +7,18 @@
 # ReqCache
 
 ReqCache is a Go package for caching data within a single request context.
+Usable in web servers, gRPC servers, and other applications with a request-response lifecycle.
 It allows to:
 
 - Pre-allocate a single block of memory for creating multiple objects and reduce the load on the garbage collector
-- Cache objects within a single request by unique keys
+- Cache objects by unique keys
 
 ## Installation
 
 To install the package, you need to run:
 
 ```sh
-go get -u github.com/n-r-w/reqcache
+go get -u github.com/n-r-w/reqcache@latest
 ```
 
 ## Benchmarks with and without batch allocation
