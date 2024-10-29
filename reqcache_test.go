@@ -280,7 +280,7 @@ func TestAsyncReqCache(t *testing.T) {
 
 	const (
 		nParallel = 100
-		objCount  = 100
+		objCount  = 1000
 	)
 
 	var (

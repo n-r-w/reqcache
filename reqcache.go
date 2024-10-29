@@ -64,8 +64,8 @@ func New[K comparable, T any](objSize, cacheSize int, opts ...Option) *ReqCache[
 		op:          options{}, //nolint:exhaustruct // default values
 		cacheSize:   cacheSize,
 		objSize:     objSize,
+		objectsPool: nil,
 		dataPool:    newPoolWrapper[K, T](cacheSize),
-		objectsPool: newObjectSyncPool[T](),
 		objects:     make(map[uint64]*objectPool[T]),
 		data:        make(map[uint64]*lru.Cache[K, *T]),
 		muData:      sync.RWMutex{},
@@ -75,6 +75,8 @@ func New[K comparable, T any](objSize, cacheSize int, opts ...Option) *ReqCache[
 	for _, opt := range opts {
 		opt(&m.op)
 	}
+
+	m.objectsPool = newObjectSyncPool[T](m.op.name, m.objSize, m.op.logger)
 
 	return m
 }
@@ -88,7 +90,7 @@ func (m *ReqCache[K, T]) NewObject(ctx context.Context) *T {
 
 	p, ok := m.objects[requestKey]
 	if !ok {
-		p = m.objectsPool.Get(m.op.name, m.objSize, m.op.logger)
+		p = m.objectsPool.Get()
 		m.objects[requestKey] = p
 	}
 

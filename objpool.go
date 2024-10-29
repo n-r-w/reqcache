@@ -53,34 +53,24 @@ type objectSyncPool[T any] struct {
 }
 
 // newObjectSyncPool creates a new objectSyncPool.
-func newObjectSyncPool[T any]() *objectSyncPool[T] {
+func newObjectSyncPool[T any](name string, size int, logger ILogger) *objectSyncPool[T] {
 	return &objectSyncPool[T]{
 		pool: &sync.Pool{
 			New: func() any {
-				return &objectPool[T]{ //nolint:exhaustruct // default values
-					mu: sync.Mutex{},
-				}
+				return newObjectPool[T](name, size, logger)
 			},
 		},
 	}
 }
 
 // Get returns an object from the pool.
-func (w *objectSyncPool[T]) Get(name string, size int, logger ILogger) *objectPool[T] {
+func (w *objectSyncPool[T]) Get() *objectPool[T] {
 	o, _ := w.pool.Get().(*objectPool[T])
 	o.index = 0
-	o.name = name
-	o.logger = logger
-	o.mu = sync.Mutex{}
 
-	if cap(o.data) < size {
-		o.data = make([]T, size)
-	} else {
-		o.data = o.data[:size]
-		var zero T
-		for i := 0; i < size; i++ {
-			o.data[i] = zero
-		}
+	var zero T
+	for i := 0; i < len(o.data); i++ {
+		o.data[i] = zero
 	}
 
 	return o
@@ -88,7 +78,5 @@ func (w *objectSyncPool[T]) Get(name string, size int, logger ILogger) *objectPo
 
 // Put puts an object in the pool.
 func (w *objectSyncPool[T]) Put(v *objectPool[T]) {
-	v.logger = nil
-
 	w.pool.Put(v)
 }

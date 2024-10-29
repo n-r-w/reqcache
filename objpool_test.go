@@ -70,12 +70,12 @@ func TestObjectSyncPoolReuse(t *testing.T) {
 
 	ctx := context.Background()
 
-	syncPool := newObjectSyncPool[int]()
-
 	// Request an object from the sync pool
 	const objCount = 10
 
-	pool1 := syncPool.Get("testSyncPool", objCount, nil)
+	syncPool := newObjectSyncPool[int]("testSyncPool", objCount, nil)
+
+	pool1 := syncPool.Get()
 	for i := 0; i < objCount; i++ {
 		obj := pool1.get(ctx)
 		*obj = i + 1
@@ -85,13 +85,13 @@ func TestObjectSyncPoolReuse(t *testing.T) {
 	syncPool.Put(pool1)
 
 	// Request another object pool, it should reuse the previous pool and not reallocate memory
-	pool2 := syncPool.Get("testSyncPool", objCount/2, nil)
+	pool2 := syncPool.Get()
 	require.Same(t, pool1, pool2, "Reused object pool should be the same as the previous pool")
 	require.Equal(t, 0, pool2.index, "Reused object pool should have an initial index of 0")
-	require.Len(t, pool2.data, objCount/2, "Reused object pool should have the correct size")
+	require.Len(t, pool2.data, objCount, "Reused object pool should have the correct size")
 
 	// Check that the objects are cleared
-	for i := 0; i < objCount/2; i++ {
+	for i := 0; i < objCount; i++ {
 		obj := pool2.get(ctx)
 		require.Equal(t, 0, *obj, "Object should be cleared")
 	}
