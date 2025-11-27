@@ -28,6 +28,17 @@ BenchmarkWithoutBatchAllocation-32          747    1513720 ns/op 10240114 B/op  
 BenchmarkWithBatchAllocation-32            4189     251629 ns/op     2598 B/op        3 allocs/op
 ```
 
+## Key Type Performance
+
+When choosing cache key types, string keys generally perform better than struct keys:
+
+```sh
+BenchmarkStringKey-16    	   61869	     18234 ns/op
+BenchmarkStructKey-16    	   44949	     26602 ns/op
+```
+
+String keys are ~31% faster due to more efficient hashing and comparison operations in Go's map implementation.
+
 ## Usage
 
 ### Create a reqcache object
@@ -42,7 +53,7 @@ const (
     maxCacheSize = 10000
 )
 
-cache := reqcache.New[KeyType, ObjectType](
+cache, err := reqcache.New[KeyType, ObjectType](
     preAllocatedObjects, maxCacheSize,    
     reqcache.WithLogger("cache name", logger), // used for logging/metrics pre-allocated memory overflow and cache hits   
 )
@@ -53,7 +64,11 @@ cache := reqcache.New[KeyType, ObjectType](
 NewSession adds a new session key to the context. It must be called once at the beginning of the request processing.
 
 ```go
-ctx = reqcache.NewSession(ctx)
+ctx, err := reqcache.NewSession(ctx)
+if err != nil {
+    // handle error
+    panic(err)
+}
 ```
 
 ### End the session
@@ -61,7 +76,12 @@ ctx = reqcache.NewSession(ctx)
 EndSession removes all cache data from the reqcache object, associated with the session key.
 
 ```go
-defer cache.EndSession(ctx)
+defer func() {
+    if err := cache.EndSession(ctx); err != nil {
+        // handle error
+        log.Printf("Error ending session: %v", err)
+    }
+}()
 ```
 
 ### Create a new object
@@ -71,7 +91,7 @@ If no pre-allocated memory is available (because too many objects have already b
 In case of an object pool overflow, the logger will be called.
 
 ```go
-newObj := cache.NewObject(ctx)
+newObj, err := cache.NewObject(ctx)
 ```
 
 ### Put an object into the cache
@@ -79,7 +99,10 @@ newObj := cache.NewObject(ctx)
 Put adds an object to the cache by a unique key.
 
 ```go
-cache.Put(ctx, key, newObj)
+if err := cache.Put(ctx, key, newObj); err != nil {
+    // handle error
+    panic(err)
+}
 ```
 
 ### Get an object from the cache
@@ -87,7 +110,7 @@ cache.Put(ctx, key, newObj)
 Get returns an object from the cache by a unique key.
 
 ```go
-obj, ok := cache.Get(ctx, key)
+obj, ok, err := cache.Get(ctx, key)
 ```
 
 ### Other methods
@@ -121,21 +144,38 @@ func main() {
 
     )
 
-    cache := reqcache.New[myKey, myObject](
+    cache, err := reqcache.New[myKey, myObject](
         objSize, cacheSize,
         reqcache.WithLogger("example", &myLogger{}), // logging and metrics for object pool overflows
     )
+    if err != nil {
+        log.Fatal(err)
+    }
 
     http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // Prepare context for cache operations
-        ctx := reqcache.NewSession(r.Context())
+        ctx, err := reqcache.NewSession(r.Context())
+        if err != nil {
+            http.Error(w, "Failed to create session", http.StatusInternalServerError)
+            return
+        }
 
         // clean up the cache data after the request
-        defer cache.EndSession(ctx)
+        defer func() {
+            if err := cache.EndSession(ctx); err != nil {
+                log.Printf("Error ending session: %v", err)
+            }
+        }()
 
         // Simulate some data processing
-        workFunc1(ctx, cache)
-        workFunc2(ctx, cache)
+        if err := workFunc1(ctx, cache); err != nil {
+            http.Error(w, "Processing error", http.StatusInternalServerError)
+            return
+        }
+        if err := workFunc2(ctx, cache); err != nil {
+            http.Error(w, "Processing error", http.StatusInternalServerError)
+            return
+        }
 
         _, _ = fmt.Fprintf(w, "request processed")
 
@@ -156,59 +196,78 @@ var (
     dataKey4 = myKey{Key1: "some-key41", Key2: "some-key42"}
 )
 
-func workFunc1(ctx context.Context, cache *MyCache) {
+func workFunc1(ctx context.Context, cache *MyCache) error {
     // Create a new object from the pre-allocated memory
-    newObj1 := cache.NewObject(ctx)
+    newObj1, err := cache.NewObject(ctx)
+    if err != nil {
+        return err
+    }
     // Set the value
     newObj1.Value = "Hello, World 1!"
 
     // Put the object into the cache
-    cache.Put(ctx, dataKey1, newObj1)
+    if err := cache.Put(ctx, dataKey1, newObj1); err != nil {
+        return err
+    }
 
     // Create another object manually
     newObj2 := &myObject{Value: "Hello, World 2!"}
 
     // Put the object into the cache
-    cache.Put(ctx, dataKey2, newObj2)
+    if err := cache.Put(ctx, dataKey2, newObj2); err != nil {
+        return err
+    }
+    
+    return nil
 }
 
-func workFunc2(ctx context.Context, cache *MyCache) {
+func workFunc2(ctx context.Context, cache *MyCache) error {
     // obj1 is cached
-    if obj1, ok := cache.Get(ctx, dataKey1); ok {
+    obj1, found, err := cache.Get(ctx, dataKey1)
+    if err != nil {
+        return err
+    }
+    if found {
         log.Println("obj1 is cached:", obj1.Value)
     }
 
     // obj3 is not cached. will be fetched and cached
-    if obj3, err := cache.GetOrFetch(ctx, dataKey3,
+    obj3, err := cache.GetOrFetch(ctx, dataKey3,
         func(_ context.Context) (*myObject, error) {
             // fetching data
             return &myObject{Value: "Hello, World 3!"}, nil
-        }); err != nil {
-        log.Println(err.Error())
-    } else {
-        log.Println("obj3 is fetched:", obj3.Value)
+        })
+    if err != nil {
+        return err
     }
+    log.Println("obj3 is fetched:", obj3.Value)
 
-    workFunc3(ctx, cache)
+    return workFunc3(ctx, cache)
 }
 
-func workFunc3(ctx context.Context, cache *MyCache) {
+func workFunc3(ctx context.Context, cache *MyCache) error {
     // obj3 is cached
-    if obj3, ok := cache.Get(ctx, dataKey3); ok {
+    obj3, found, err := cache.Get(ctx, dataKey3)
+    if err != nil {
+        return err
+    }
+    if found {
         log.Println("obj3 is cached:", obj3.Value)
     }
 
     // obj4 is not cached. will be created by NewObject, prepared and cached
-    if obj4, err := cache.GetOrNew(ctx, dataKey4,
+    obj4, err := cache.GetOrNew(ctx, dataKey4,
         func(_ context.Context, obj *myObject) error {
             // preparing data
             obj.Value = "Hello, World 4!"
             return nil
-        }); err != nil {
-        log.Println(err.Error())
-    } else {
-        log.Println("obj4 is created by NewObject and prepared:", obj4.Value)
+        })
+    if err != nil {
+        return err
     }
+    log.Println("obj4 is created by NewObject and prepared:", obj4.Value)
+    
+    return nil
 }
 
 // myLogger is a custom logger for ReqCache. It logs object pool overflows and cache hits.

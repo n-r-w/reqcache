@@ -1,4 +1,6 @@
-.vscode
-.idea
-coverage.out
-example
+/.vscode
+/.idea
+/.serena
+.DS_Store
+/coverage.out
+/example

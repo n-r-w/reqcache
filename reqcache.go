@@ -2,6 +2,7 @@ package reqcache
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -16,12 +17,12 @@ type ILogger interface {
 
 // NewSession adds a unique key for caching data in the cache.
 // Must be called once at the beginning of the request processing.
-func NewSession(ctx context.Context) context.Context {
+func NewSession(ctx context.Context) (context.Context, error) {
 	if InContext(ctx) {
-		panic("context already has a reqcache key")
+		return nil, ErrSessionAlreadyExists
 	}
 
-	return context.WithValue(ctx, contextKey, atomic.AddUint64(&requestID, 1))
+	return context.WithValue(ctx, contextKey, atomic.AddUint64(&requestID, 1)), nil
 }
 
 // InContext checks if there is a key for caching data in the cache.
@@ -47,19 +48,10 @@ type ReqCache[K comparable, T any] struct {
 	muObjects sync.Mutex
 }
 
-// WithLogger sets a logger for displaying/metrics new object pool overflows.
-// By default, the logger is nil.
-func WithLogger(name string, logger ILogger) Option {
-	return func(c *options) {
-		c.name = name
-		c.logger = logger
-	}
-}
-
 // New creates a new instance of ReqCache.
 // objSize is the size of the array of objects of type T, preallocating memory for them.
 // cacheSize is the size of the cache in a single request.
-func New[K comparable, T any](objSize, cacheSize int, opts ...Option) *ReqCache[K, T] {
+func New[K comparable, T any](objSize, cacheSize int, opts ...Option) (*ReqCache[K, T], error) {
 	m := &ReqCache[K, T]{
 		op:          options{}, //nolint:exhaustruct // default values
 		cacheSize:   cacheSize,
@@ -76,14 +68,38 @@ func New[K comparable, T any](objSize, cacheSize int, opts ...Option) *ReqCache[
 		opt(&m.op)
 	}
 
+	if err := m.validate(); err != nil {
+		return nil, err
+	}
+
 	m.objectsPool = newObjectSyncPool[T](m.op.name, m.objSize, m.op.logger)
 
-	return m
+	return m, nil
+}
+
+// validate validates the ReqCache configuration.
+func (m *ReqCache[K, T]) validate() error {
+	if m.cacheSize <= 0 {
+		return errors.New("cache size must be greater than 0")
+	}
+
+	if m.objSize <= 0 {
+		return errors.New("object size must be greater than 0")
+	}
+
+	if m.op.logger != nil && m.op.name == "" {
+		return errors.New("operation name must be set when logger is provided")
+	}
+
+	return nil
 }
 
 // NewObject creates a new object of type T.
-func (m *ReqCache[K, T]) NewObject(ctx context.Context) *T {
-	requestKey := fromContext(ctx)
+func (m *ReqCache[K, T]) NewObject(ctx context.Context) (*T, error) {
+	requestKey, err := fromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	m.muObjects.Lock()
 	defer m.muObjects.Unlock()
@@ -94,14 +110,15 @@ func (m *ReqCache[K, T]) NewObject(ctx context.Context) *T {
 		m.objects[requestKey] = p
 	}
 
-	return p.get(ctx)
+	return p.get(ctx), nil
 }
 
 // Put saves data in the cache.
-func (m *ReqCache[K, T]) Put(ctx context.Context, dataKey K, data *T) {
-	m.checkCache()
-
-	requestKey := fromContext(ctx)
+func (m *ReqCache[K, T]) Put(ctx context.Context, dataKey K, data *T) error {
+	requestKey, err := fromContext(ctx)
+	if err != nil {
+		return err
+	}
 
 	m.muData.Lock()
 	defer m.muData.Unlock()
@@ -113,65 +130,73 @@ func (m *ReqCache[K, T]) Put(ctx context.Context, dataKey K, data *T) {
 	}
 
 	d.Add(dataKey, data)
+
+	return nil
 }
 
 // Exists checks if the data exists in the cache.
-func (m *ReqCache[K, T]) Exists(ctx context.Context, dataKey K) (found bool) { //nolint:nonamedreturns // false positive
+func (m *ReqCache[K, T]) Exists(ctx context.Context, dataKey K) (
+	found bool, err error,
+) { //nolint:nonamedreturns // false positive
 	if m.op.logger != nil {
 		defer func() { m.op.logger.LogCacheHitRatio(ctx, m.op.name, found) }()
 	}
 
-	m.checkCache()
-
-	requestKey := fromContext(ctx)
+	requestKey, err := fromContext(ctx)
+	if err != nil {
+		return false, err
+	}
 
 	m.muData.RLock()
 	defer m.muData.RUnlock()
 
 	d, ok := m.data[requestKey]
 	if !ok {
-		return false
+		return false, nil
 	}
 
-	return d.Contains(dataKey)
+	return d.Contains(dataKey), nil
 }
 
 // Delete deletes data from the cache.
-func (m *ReqCache[K, T]) Delete(ctx context.Context, dataKey K) bool {
-	m.checkCache()
-
-	requestKey := fromContext(ctx)
+func (m *ReqCache[K, T]) Delete(ctx context.Context, dataKey K) (bool, error) {
+	requestKey, err := fromContext(ctx)
+	if err != nil {
+		return false, err
+	}
 
 	m.muData.Lock()
 	defer m.muData.Unlock()
 
 	d, ok := m.data[requestKey]
 	if !ok {
-		return false
+		return false, nil
 	}
 
-	return d.Remove(dataKey)
+	return d.Remove(dataKey), nil
 }
 
 // Get returns data from the cache.
-func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool) { //nolint:nonamedreturns,lll // false positive
+func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool, err error) { //nolint:nonamedreturns,lll // false positive
 	if m.op.logger != nil {
 		defer func() { m.op.logger.LogCacheHitRatio(ctx, m.op.name, found) }()
 	}
 
-	m.checkCache()
-
-	requestKey := fromContext(ctx)
+	requestKey, err := fromContext(ctx)
+	if err != nil {
+		return nil, false, err
+	}
 
 	m.muData.RLock()
 	defer m.muData.RUnlock()
 
 	data, ok := m.data[requestKey]
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 
-	return data.Get(dataKey)
+	obj, found = data.Get(dataKey)
+	return obj, found, nil
 }
 
 // GetOrFetch returns data from the cache or fetches it from the fetcher function,
@@ -179,7 +204,11 @@ func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool
 func (m *ReqCache[K, T]) GetOrFetch(ctx context.Context, dataKey K,
 	fetcher func(context.Context) (*T, error),
 ) (*T, error) {
-	v, ok := m.Get(ctx, dataKey)
+	v, ok, err := m.Get(ctx, dataKey)
+	if err != nil {
+		return nil, err
+	}
+
 	if ok {
 		return v, nil
 	}
@@ -189,24 +218,36 @@ func (m *ReqCache[K, T]) GetOrFetch(ctx context.Context, dataKey K,
 		return nil, err
 	}
 
-	m.Put(ctx, dataKey, obj)
+	if err := m.Put(ctx, dataKey, obj); err != nil {
+		return nil, err
+	}
 
 	return obj, nil
 }
 
 // GetOrNew returns data from the cache or creates it and prepares with the prepare function.
 func (m *ReqCache[K, T]) GetOrNew(ctx context.Context, dataKey K, prepare func(context.Context, *T) error) (*T, error) {
-	v, ok := m.Get(ctx, dataKey)
+	v, ok, err := m.Get(ctx, dataKey)
+	if err != nil {
+		return nil, err
+	}
+
 	if ok {
 		return v, nil
 	}
 
-	obj := m.NewObject(ctx)
+	obj, err := m.NewObject(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := prepare(ctx, obj); err != nil {
 		return nil, err
 	}
 
-	m.Put(ctx, dataKey, obj)
+	if err := m.Put(ctx, dataKey, obj); err != nil {
+		return nil, err
+	}
 
 	return obj, nil
 }
@@ -214,8 +255,11 @@ func (m *ReqCache[K, T]) GetOrNew(ctx context.Context, dataKey K, prepare func(c
 // EndSession deletes data from the cache.
 // It is recommended to call EndSession in the defer statement.
 // After calling EndSession, the cache object with the session context key is no longer usable.
-func (m *ReqCache[K, T]) EndSession(ctx context.Context) {
-	requestKey := fromContext(ctx)
+func (m *ReqCache[K, T]) EndSession(ctx context.Context) error {
+	requestKey, err := fromContext(ctx)
+	if err != nil {
+		return err
+	}
 
 	m.muData.Lock()
 	if v, ok := m.data[requestKey]; ok {
@@ -230,20 +274,8 @@ func (m *ReqCache[K, T]) EndSession(ctx context.Context) {
 		m.objectsPool.Put(v)
 	}
 	m.muObjects.Unlock()
-}
 
-func (m *ReqCache[K, T]) checkCache() {
-	if m.cacheSize <= 0 {
-		panic("cache size must be greater than 0")
-	}
-}
-
-// Option is a function for configuring ReqCache.
-type Option func(*options)
-
-type options struct {
-	name   string
-	logger ILogger
+	return nil
 }
 
 type contextKeyType struct{}
@@ -255,15 +287,15 @@ var (
 )
 
 // fromContext returns the key from the context.
-func fromContext(ctx context.Context) uint64 {
+func fromContext(ctx context.Context) (uint64, error) {
 	if ctx == nil {
-		panic("no reqcache key in context")
+		return 0, ErrNoSessionInContext
 	}
 
 	v, ok := ctx.Value(contextKey).(uint64)
 	if !ok {
-		panic("no reqcache key in context")
+		return 0, ErrNoSessionInContext
 	}
 
-	return v
+	return v, nil
 }

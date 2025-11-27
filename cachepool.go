@@ -19,6 +19,8 @@ func newPoolWrapper[K comparable, T any](size int) *cachePool[K, T] {
 			New: func() any {
 				c, err := lru.New[K, *T](size)
 				if err != nil {
+					// we can't recover from this error, so panic
+					// in practice, this should never happen due to validation in New
 					panic(fmt.Errorf("failed to create poolWrapper: %w", err))
 				}
 				return c

@@ -1,4 +1,3 @@
-//nolint:exhaustruct // tests
 package reqcache
 
 import (
@@ -57,106 +56,147 @@ type reqCacheTestObject struct {
 func TestSession(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
 
 	require.True(t, InContext(ctx))
 
-	require.Panics(t, func() {
-		NewSession(ctx)
-	}, "context already has a reqcache key")
+	// Should return an error when trying to create a session that already exists
+	_, err = NewSession(ctx)
+	require.ErrorIs(t, err, ErrSessionAlreadyExists)
 }
 
 func TestInContext(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	require.Panics(t, func() { fromContext(ctx) })
+
+	// Should return an error when trying to get session from context without one
+	_, err := fromContext(ctx)
+	require.ErrorIs(t, err, ErrNoSessionInContext)
 
 	require.False(t, InContext(ctx))
 
-	ctx = NewSession(ctx)
+	ctx, err = NewSession(ctx)
+	require.NoError(t, err)
+
 	require.True(t, InContext(ctx))
 }
 
 func TestReqCache_NewObject(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
 
-	cache := New[string, reqCacheTestObject](10, 10)
-	obj := cache.NewObject(ctx)
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
+
+	obj, err := cache.NewObject(ctx)
+	require.NoError(t, err)
 	require.Equal(t, 0, obj.value)
 }
 
 func TestReqCache_Exists(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
-	cache := New[string, reqCacheTestObject](10, 10)
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
+
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
 
 	const key = "key1"
 	value := &reqCacheTestObject{value: 100}
-	cache.Put(ctx, key, value)
+	err = cache.Put(ctx, key, value)
+	require.NoError(t, err)
 
-	require.True(t, cache.Exists(ctx, key))
-	require.False(t, cache.Exists(ctx, "key2"))
+	found, err := cache.Exists(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
+
+	found, err = cache.Exists(ctx, "key2")
+	require.NoError(t, err)
+	require.False(t, found)
 }
 
 func TestReqCache_PutAndGet(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
-	cache := New[string, reqCacheTestObject](10, 10)
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
+
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
 
 	const key = "key1"
 	value := &reqCacheTestObject{value: 100}
-	cache.Put(ctx, key, value)
+	err = cache.Put(ctx, key, value)
+	require.NoError(t, err)
 
-	retrievedValue, ok := cache.Get(ctx, key)
-	require.True(t, ok)
+	retrievedValue, found, err := cache.Get(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
 	require.Equal(t, value, retrievedValue)
 
-	require.True(t, cache.Exists(ctx, key))
+	found, err = cache.Exists(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
 
 	const nonExistentKey = "key2"
-	_, exists := cache.Get(ctx, nonExistentKey)
-	require.False(t, exists)
+	_, found, err = cache.Get(ctx, nonExistentKey)
+	require.NoError(t, err)
+	require.False(t, found)
 
-	cache.Delete(ctx, key)
-	require.False(t, cache.Exists(ctx, key))
+	deleted, err := cache.Delete(ctx, key)
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	found, err = cache.Exists(ctx, key)
+	require.NoError(t, err)
+	require.False(t, found)
 }
 
 func TestReqCache_Delete(t *testing.T) {
 	t.Parallel()
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
 
-	ctx := NewSession(context.Background())
-	cache := New[string, reqCacheTestObject](10, 10)
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
 
 	key := "key1"
 	value := &reqCacheTestObject{value: 100}
-	cache.Put(ctx, key, value)
+	err = cache.Put(ctx, key, value)
+	require.NoError(t, err)
 
-	retrievedValue, ok := cache.Get(ctx, key)
-	require.True(t, ok)
+	retrievedValue, found, err := cache.Get(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
 	require.Equal(t, value, retrievedValue)
 
-	cache.EndSession(ctx)
+	err = cache.EndSession(ctx)
+	require.NoError(t, err)
 
-	_, exists := cache.Get(ctx, key)
-	require.False(t, exists)
+	_, found, err = cache.Get(ctx, key)
+	require.NoError(t, err)
+	require.False(t, found)
 }
 
 func TestNewObject(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
 
-	cache := New[string, reqCacheTestObject](10, 10)
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
 
 	// Ensure that we can create new objects without overflowing the pool
 	var prevObj *reqCacheTestObject
-	for i := 0; i < 20; i++ {
-		obj := cache.NewObject(ctx)
+	for range 20 {
+		obj, err := cache.NewObject(ctx)
+		require.NoError(t, err)
 		require.Equal(t, 0, obj.value, "New object should have a value of 0")
 
 		if prevObj == obj {
@@ -167,15 +207,19 @@ func TestNewObject(t *testing.T) {
 	}
 
 	// Ensure that the object pool is reset after clearing the cache
-	cache.EndSession(ctx)
+	err = cache.EndSession(ctx)
+	require.NoError(t, err)
 	require.Empty(t, cache.objects, "Object pool should be empty after cache is cleared")
 }
 
 func TestReqCache_GetOrFetch(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
-	cache := New[string, reqCacheTestObject](10, 10)
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
+
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
 
 	const key = "key1"
 	value := &reqCacheTestObject{value: 100}
@@ -190,8 +234,9 @@ func TestReqCache_GetOrFetch(t *testing.T) {
 	require.Equal(t, value, retrievedValue)
 
 	// Ensure value is correctly stored in the cache
-	cachedValue, ok := cache.Get(ctx, key)
-	require.True(t, ok)
+	cachedValue, found, err := cache.Get(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
 	require.Equal(t, value, cachedValue)
 
 	// Validate that fetcher is not called again and the cached value is returned
@@ -213,8 +258,11 @@ func TestReqCache_GetOrFetch(t *testing.T) {
 func TestReqCache_GetOrNew(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
-	cache := New[string, reqCacheTestObject](10, 10)
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
+
+	cache, err := New[string, reqCacheTestObject](10, 10)
+	require.NoError(t, err)
 
 	const key = "key1"
 	initialValue := 100
@@ -230,8 +278,9 @@ func TestReqCache_GetOrNew(t *testing.T) {
 	require.Equal(t, initialValue, retrievedValue.value)
 
 	// Ensure value is correctly stored in the cache
-	cachedValue, ok := cache.Get(ctx, key)
-	require.True(t, ok)
+	cachedValue, found, err := cache.Get(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
 	require.Equal(t, initialValue, cachedValue.value)
 
 	// Validate that prepare is not called again and the cached value is returned
@@ -254,24 +303,29 @@ func TestReqCache_GetOrNew(t *testing.T) {
 func TestReqCache_HitRatio(t *testing.T) {
 	t.Parallel()
 
-	ctx := NewSession(context.Background())
+	ctx, err := NewSession(context.Background())
+	require.NoError(t, err)
 
 	logger := &mockLogger{}
-	cache := New[string, reqCacheTestObject](0, 1, WithLogger("test", logger))
+	cache, err := New[string, reqCacheTestObject](1, 1, WithLogger("test", logger))
+	require.NoError(t, err)
 
 	const key = "key1"
 	value := &reqCacheTestObject{value: 100}
-	cache.Put(ctx, key, value)
+	err = cache.Put(ctx, key, value)
+	require.NoError(t, err)
 
 	// Ensure that we get object from the cache
-	retrievedValue, ok := cache.Get(ctx, key)
-	require.True(t, ok)
+	retrievedValue, found, err := cache.Get(ctx, key)
+	require.NoError(t, err)
+	require.True(t, found)
 	require.Equal(t, value, retrievedValue)
 	require.Equal(t, &mockLogger{name: "test", objHit: 0, objMiss: 0, cacheHit: 1, cacheMiss: 0}, logger)
 
 	// Not found in the cache
-	_, ok = cache.Get(ctx, "key2")
-	require.False(t, ok)
+	_, found, err = cache.Get(ctx, "key2")
+	require.NoError(t, err)
+	require.False(t, found)
 	require.Equal(t, &mockLogger{name: "test", objHit: 0, objMiss: 0, cacheHit: 1, cacheMiss: 1}, logger)
 }
 
@@ -284,30 +338,45 @@ func TestAsyncReqCache(t *testing.T) {
 	)
 
 	var (
-		errGroup errgroup.Group
-		cache    = New[string, reqCacheTestObject](objCount, objCount)
+		errGroup   errgroup.Group
+		cache, err = New[string, reqCacheTestObject](objCount, objCount)
 	)
+	require.NoError(t, err)
 
 	// Ensure that we can work with multiple threads without interference between them
-	for i := 0; i < nParallel; i++ {
+	for range nParallel {
 		errGroup.Go(func() error {
-			ctx := NewSession(context.Background())
-			defer cache.EndSession(ctx)
+			ctx, err := NewSession(context.Background())
+			if err != nil {
+				return err
+			}
+			defer func() {
+				_ = cache.EndSession(ctx)
+			}()
 
 			objects := make([]*reqCacheTestObject, objCount)
 
-			for k := 0; k < objCount; k++ {
+			for k := range objCount {
 				key := "key" + strconv.Itoa(k)
-				obj := cache.NewObject(ctx)
+				obj, err := cache.NewObject(ctx)
+				if err != nil {
+					return err
+				}
 				obj.value = k
-				cache.Put(ctx, key, obj)
+				err = cache.Put(ctx, key, obj)
+				if err != nil {
+					return err
+				}
 				objects[k] = obj
 			}
 
-			for k := 0; k < objCount; k++ {
+			for k := range objCount {
 				key := "key" + strconv.Itoa(k)
-				v, ok := cache.Get(ctx, key)
-				if !ok {
+				v, found, err := cache.Get(ctx, key)
+				if err != nil {
+					return err
+				}
+				if !found {
 					return fmt.Errorf("value not found, expected %d", k)
 				}
 
@@ -320,7 +389,10 @@ func TestAsyncReqCache(t *testing.T) {
 				}
 			}
 
-			reqID := fromContext(ctx)
+			reqID, err := fromContext(ctx)
+			if err != nil {
+				return err
+			}
 
 			cache.muData.RLock()
 			defer cache.muData.RUnlock()
