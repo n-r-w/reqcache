@@ -137,7 +137,7 @@ func (m *ReqCache[K, T]) Put(ctx context.Context, dataKey K, data *T) error {
 // Exists checks if the data exists in the cache.
 func (m *ReqCache[K, T]) Exists(ctx context.Context, dataKey K) (
 	found bool, err error,
-) { //nolint:nonamedreturns // false positive
+) {
 	if m.op.logger != nil {
 		defer func() { m.op.logger.LogCacheHitRatio(ctx, m.op.name, found) }()
 	}
@@ -177,7 +177,7 @@ func (m *ReqCache[K, T]) Delete(ctx context.Context, dataKey K) (bool, error) {
 }
 
 // Get returns data from the cache.
-func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool, err error) { //nolint:nonamedreturns,lll // false positive
+func (m *ReqCache[K, T]) Get(ctx context.Context, dataKey K) (obj *T, found bool, err error) {
 	if m.op.logger != nil {
 		defer func() { m.op.logger.LogCacheHitRatio(ctx, m.op.name, found) }()
 	}
