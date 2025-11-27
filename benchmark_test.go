@@ -41,7 +41,10 @@ func BenchmarkWithBatchAllocation(b *testing.B) {
 		cancel context.CancelFunc
 	)
 
-	cache, _ := New[string, BenchObject](opCount, 0)
+	cache, err := New[string, BenchObject](opCount, 0)
+	if err != nil {
+		b.Fatalf("Failed to create cache: %v", err)
+	}
 
 	for i := 0; i < b.N; i++ {
 		ctx, cancel = context.WithCancel(context.Background())

@@ -50,7 +50,9 @@ type ReqCache[K comparable, T any] struct {
 
 // New creates a new instance of ReqCache.
 // objSize is the size of the array of objects of type T, preallocating memory for them.
+// objSize can be zero, in this case no preallocation is done.
 // cacheSize is the size of the cache in a single request.
+// At least one of objSize or cacheSize must be greater than zero.
 func New[K comparable, T any](objSize, cacheSize int, opts ...Option) (*ReqCache[K, T], error) {
 	m := &ReqCache[K, T]{
 		op:          options{}, //nolint:exhaustruct // default values
@@ -79,12 +81,16 @@ func New[K comparable, T any](objSize, cacheSize int, opts ...Option) (*ReqCache
 
 // validate validates the ReqCache configuration.
 func (m *ReqCache[K, T]) validate() error {
-	if m.cacheSize <= 0 {
-		return errors.New("cache size must be greater than 0")
+	if m.objSize <= 0 && m.cacheSize <= 0 {
+		return errors.New("either object size or cache size must be greater than 0")
 	}
 
-	if m.objSize <= 0 {
-		return errors.New("object size must be greater than 0")
+	if m.cacheSize < 0 {
+		return errors.New("cache size must be greater or equal to 0")
+	}
+
+	if m.objSize < 0 {
+		return errors.New("object size must be greater or equal to 0")
 	}
 
 	if m.op.logger != nil && m.op.name == "" {
