@@ -2,6 +2,7 @@ package reqcache
 
 import (
 	"context"
+	"runtime/debug"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -64,8 +65,10 @@ func TestObjectPoolOverflowLogging(t *testing.T) {
 	require.Equal(t, &mockLogger{name: "testPool", objHit: 1, objMiss: 1}, logger)
 }
 
-func TestObjectSyncPoolReuse(t *testing.T) {
-	t.Parallel()
+func TestObjectSyncPoolReuse(t *testing.T) { //nolint:paralleltest // GC settings are global
+	// Disable GC to guarantee reuse
+	originalGCPercent := debug.SetGCPercent(-1)
+	defer debug.SetGCPercent(originalGCPercent)
 
 	ctx := context.Background()
 
@@ -75,7 +78,7 @@ func TestObjectSyncPoolReuse(t *testing.T) {
 	syncPool := newObjectSyncPool[int]("testSyncPool", objCount, nil)
 
 	pool1 := syncPool.Get()
-	for i := 0; i < objCount; i++ {
+	for i := range objCount {
 		obj := pool1.get(ctx)
 		*obj = i + 1
 	}
@@ -90,7 +93,7 @@ func TestObjectSyncPoolReuse(t *testing.T) {
 	require.Len(t, pool2.data, objCount, "Reused object pool should have the correct size")
 
 	// Check that the objects are cleared
-	for i := 0; i < objCount; i++ {
+	for range objCount {
 		obj := pool2.get(ctx)
 		require.Equal(t, 0, *obj, "Object should be cleared")
 	}
